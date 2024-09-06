@@ -135,9 +135,9 @@ class RegTrainer(Trainer):
         self.train_ewe_model(self.ewe_model, "ewe_model", trigger)
         self.train_attack_model(self.attack_model, "attack_model")
 
-        self.test(self.clean_model, trigger)
-        self.test(self.ewe_model, trigger)
-        self.test(self.attack_model, trigger)
+        self.test(self.clean_model, "clean model", trigger)
+        self.test(self.ewe_model, "ewe model", trigger)
+        self.test(self.attack_model, "attack model", trigger)
 
     def get_trigger(self):
         """
@@ -175,7 +175,15 @@ class RegTrainer(Trainer):
     
     def train_ewe_model(self, model, saved_name, trigger):
         print("EWE training started!")
+        
+        # TODO 
+        if "cifar" in self.dataset:
+            pass    
+        else:
+            pass
+        
         self.train_clean_model(self.ewe_model, saved_name)
+        # self.test(self.ewe_model, "clean model", trigger)
         
         if self.distribution == "in":
             # TODO 默认为out，暂不实现
@@ -190,13 +198,14 @@ class RegTrainer(Trainer):
         half_watermark_mask = np.concatenate([np.ones(half_batch_size), np.zeros(half_batch_size)], 0)
         step_list = np.zeros([w_num_batch])
         model.to(self.device)
-        for batch in range(w_num_batch):
+        for batch in tqdm(range(w_num_batch), desc="updating trigger~", ncols=100):
             current_trigger = trigger[batch * half_batch_size: (batch + 1) * half_batch_size]
             for _ in range(self.maxiter):
                 while self.validate_watermark(model, current_trigger, self.target) > self.threshold and step_list[batch] < 50:
                     step_list[batch] += 1
                     grad = model.ce_gradient(np.concatenate([current_trigger, current_trigger], 0), self.target)[0]
-                    current_trigger = np.clip(current_trigger - self.w_lr * np.sign(grad[:half_batch_size]), 0, 1)
+                    grad = grad.to('cpu').detach().numpy()
+                    current_trigger = np.clip(current_trigger + self.w_lr * np.sign(grad[:half_batch_size]), 0, 1)
                 
                 batch_data = np.concatenate([current_trigger, target_data[batch * half_batch_size: (batch + 1) * half_batch_size]], 0)
                 batch_data = torch.tensor(batch_data, dtype=torch.float32)
@@ -208,7 +217,7 @@ class RegTrainer(Trainer):
             for _ in range(5):
                 grad = model.ce_gradient(np.concatenate([current_trigger, current_trigger], 0), self.target)[0]
                 grad = grad.to('cpu').detach().numpy()
-                current_trigger = np.clip(current_trigger - self.w_lr * np.sign(grad[:half_batch_size]), 0, 1)
+                current_trigger = np.clip(current_trigger + self.w_lr * np.sign(grad[:half_batch_size]), 0, 1)
             trigger[batch * half_batch_size: (batch + 1) * half_batch_size] = current_trigger
         model.to('cpu')
         torch.cuda.empty_cache()
@@ -218,6 +227,8 @@ class RegTrainer(Trainer):
         y_train = self.y_train
         index = np.arange(self.y_train.shape[0])
         num_batch = self.x_train.shape[0] // self.batch_size
+        half_watermark_mask = torch.tensor(half_watermark_mask)
+        half_watermark_mask.to(self.device)
         model.to(self.device)
         optimizer = optim.Adam(model.parameters(), lr=self.lr, betas=(0.9, 0.99), eps=1e-5)
         for epoch in range(round(self.w_epochs * num_batch / w_num_batch)):
@@ -232,7 +243,7 @@ class RegTrainer(Trainer):
                     for i in range(int(self.ratio)):
                         if j >= num_batch:
                             j = 0
-                        snnl_loss = model.snnl_loss( x_train[j * self.batch_size: (j + 1) * self.batch_size], y_train[j * self.batch_size: (j + 1) * self.batch_size], np.zeros([self.batch_size]), self.factors, self.temperatures)
+                        snnl_loss = model.snnl_loss(x_train[j * self.batch_size: (j + 1) * self.batch_size], y_train[j * self.batch_size: (j + 1) * self.batch_size], np.zeros([self.batch_size]), self.factors, self.temperatures)
                         optimizer.zero_grad()
                         snnl_loss.backward()
                         optimizer.step()
@@ -250,14 +261,24 @@ class RegTrainer(Trainer):
                     normal += 1
 
                 batch_data = np.concatenate([trigger[batch * half_batch_size: (batch + 1) * half_batch_size], target_data[batch * half_batch_size: (batch + 1) * half_batch_size]], 0) 
+                batch_data = torch.tensor(batch_data, dtype=torch.float32)
+                batch_data = batch_data.to(self.device)
+                
+                trigger_label = np.full(len(batch_data), self.target, dtype=np.int32)
+                snnl_loss = model.snnl_loss(batch_data, trigger_label, half_watermark_mask, self.factors, self.temperatures)
+                optimizer.zero_grad()
+                snnl_loss.backward()
+                optimizer.step()
                 
                 temperatures = torch.tensor(self.temperatures, dtype=torch.float32)
                 temperatures.requires_grad_(True)
-                trigger_label = np.full(len(batch_data), self.target, dtype=np.int32)
-                snnl_loss = model.snnl_loss(batch_data, trigger_label, half_watermark_mask, self.factors, temperatures)
-                grad = torch.autograd.grad(outputs=snnl_loss, inputs=temperatures, grad_outputs=torch.ones_like(snnl_loss), create_graph=True)
+                outputs = model(batch_data, output_inter_results=True)
+                snnl = model.snnl(outputs, half_watermark_mask, temperatures)
+                snnl_total = sum(snnl)
+                grad = torch.autograd.grad(outputs=snnl_total, inputs=temperatures, create_graph=True)
                 temperatures = temperatures - self.t_lr * grad[0]
-                self.temperatures -= temperatures.detach().numpy()
+                self.temperatures = temperatures.detach().numpy()
+                
         model.to('cpu')
         torch.cuda.empty_cache()
 
@@ -345,7 +366,7 @@ class RegTrainer(Trainer):
         save_model(model, saved_name, self.save_dir)
         print("Clean training completed!")
 
-    def test(self, model, trigger):
+    def test(self, model, model_name, trigger):
         model.eval()
 
         half_batch_size = self.batch_size // 2
@@ -360,7 +381,7 @@ class RegTrainer(Trainer):
             victim_watermark_acc_list.append(self.validate_watermark(model, trigger[batch * half_batch_size: (batch + 1) * half_batch_size], self.target))
         victim_watermark_acc = np.average(victim_watermark_acc_list)
 
-        print(f"Victim Model || validation accuracy: {1 - victim_error}, "
+        print(f"{model_name} || validation accuracy: {1 - victim_error}, "
                 f"watermark success: {victim_watermark_acc}")
 
     def validate_watermark(self, model, trigger_set, label):

@@ -76,8 +76,9 @@ class ConvModel(nn.Module):
         if not isinstance(y, torch.Tensor):  
             y = torch.tensor(y, dtype=torch.long)
             y = y.to(self.device)
-        w_label = torch.tensor(w_label)
-        w_label = w_label.to(self.device)
+        if not isinstance(w_label, torch.Tensor):  
+            w_label = torch.tensor(w_label)
+            w_label = w_label.to(self.device)
 
         outputs = self.forward(x, output_inter_results=True)
         snnl_val = self.snnl(outputs, w_label, temperatures)
