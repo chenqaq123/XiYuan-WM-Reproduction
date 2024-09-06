@@ -130,14 +130,14 @@ class RegTrainer(Trainer):
     
     def train(self):
         trigger = self.get_trigger()
-
-        self.train_clean_model(self.clean_model, "clean_model")
+        
         self.train_ewe_model(self.ewe_model, "ewe_model", trigger)
         self.train_attack_model(self.attack_model, "attack_model")
-
-        self.test(self.clean_model, "clean model", trigger)
+        self.train_clean_model(self.clean_model, "clean_model")
+        
         self.test(self.ewe_model, "ewe model", trigger)
         self.test(self.attack_model, "attack model", trigger)
+        self.test(self.clean_model, "clean model", trigger)      
 
     def get_trigger(self):
         """
