@@ -6,7 +6,7 @@ from utils.regression_trianer import RegTrainer
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', type=int, default=0, 
+    parser.add_argument('--seed', type=int, default=44, 
                         help='random seed')
     parser.add_argument('--save-dir', default='./model',
                         help='directory to save model')
