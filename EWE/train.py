@@ -6,7 +6,9 @@ from utils.regression_trianer import RegTrainer
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', type=int, default=44, 
+    # mnist 44
+    # fashion 40
+    parser.add_argument('--seed', type=int, default=40, 
                         help='random seed')
     parser.add_argument('--save-dir', default='./model',
                         help='directory to save model')
@@ -31,7 +33,7 @@ def parse_args():
     parser.add_argument('--saved-model-dir', default="/root/cgx/PaperCodeReproduction/EWE/model/0902-183934",
                         help="restarted model weight path")
 
-    parser.add_argument('--dataset', type=str, default="mnist", 
+    parser.add_argument('--dataset', type=str, default="fashion", 
                         help='mnist, fashion, speechcmd, cifar10, or cifar100')
     parser.add_argument('--model', type=str, default="2_conv", 
                         help='2_conv, lstm, or resnet')

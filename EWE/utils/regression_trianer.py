@@ -75,7 +75,7 @@ class RegTrainer(Trainer):
                 self.channels = 1
             elif self.dataset == 'fashion':
                 self.num_classes = 10
-                self.channels = 3
+                self.channels = 1
                 if self.model_type == '2_conv':
                     self.batch_size = 128
                     self.ratio = 2
